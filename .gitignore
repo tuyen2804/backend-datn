@@ -1,0 +1,4 @@
+# Firebase / GCP secrets
+key_fcm.json
+.env
+.env.*

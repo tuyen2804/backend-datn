@@ -1,0 +1,462 @@
+const ExpenseGroup = require("../models/expense_group.model");
+const ExpenseGroupMember = require("../models/expense_group_member.model");
+const Account = require("../models/account.model");
+const FcmToken = require("../models/fcm_token.model");
+const { sendNotification } = require("../utils/fcm");
+
+// Create expense group
+const createGroup = async (req, res) => {
+  try {
+    const { group_name, payment_deadline, member_ids } = req.body;
+    const ownerId = req.user.id;
+
+    if (!group_name) {
+      return res.status(400).json({
+        success: false,
+        message: "Group name is required"
+      });
+    }
+
+    // Validate payment deadline if provided
+    if (payment_deadline && isNaN(new Date(payment_deadline).getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment deadline format"
+      });
+    }
+
+    // Create the group
+    const groupId = await ExpenseGroup.create({
+      group_name,
+      owner_id: ownerId,
+      payment_deadline
+    });
+
+    // Add owner as first member
+    await ExpenseGroupMember.addMember({
+      group_id: groupId,
+      account_id: ownerId,
+      amount: 0,
+      payment_deadline
+    });
+
+    // Add other members if provided
+    if (member_ids && Array.isArray(member_ids)) {
+      const membersToAdd = member_ids.map(memberId => ({
+        group_id: groupId,
+        account_id: memberId,
+        amount: 0,
+        payment_deadline
+      }));
+
+      await ExpenseGroupMember.bulkAddMembers(membersToAdd);
+
+      // Send notifications to new members
+      for (const memberId of member_ids) {
+        const token = await FcmToken.getActiveToken(memberId);
+        if (token) {
+          const title = "Bạn được mời tham gia nhóm";
+          const body = `Nhóm: ${group_name}`;
+          await sendNotification(token, title, body, { groupId: groupId.toString() });
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      groupId,
+      message: "Group created successfully"
+    });
+  } catch (err) {
+    console.error("Error creating group:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Get user's groups
+const getUserGroups = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const groups = await ExpenseGroup.getByUserId(userId);
+
+    res.json({ success: true, groups });
+  } catch (err) {
+    console.error("Error getting user groups:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Get group details
+const getGroupDetails = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const userId = req.user.id;
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    // Check if user is a member
+    const memberInfo = await ExpenseGroupMember.getMember(groupId, userId);
+    if (!memberInfo && group.owner_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not a member of this group"
+      });
+    }
+
+    const members = await ExpenseGroup.getGroupMembers(groupId);
+    const stats = await ExpenseGroup.getGroupStats(groupId);
+
+    res.json({
+      success: true,
+      group: { ...group, ...stats },
+      members,
+      isOwner: group.owner_id === userId
+    });
+  } catch (err) {
+    console.error("Error getting group details:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Update group
+const updateGroup = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const userId = req.user.id;
+    const { group_name, payment_deadline } = req.body;
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (group.owner_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only group owner can update group details"
+      });
+    }
+
+    if (payment_deadline && isNaN(new Date(payment_deadline).getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment deadline format"
+      });
+    }
+
+    await ExpenseGroup.update(groupId, { group_name, payment_deadline });
+
+    res.json({ success: true, message: "Group updated successfully" });
+  } catch (err) {
+    console.error("Error updating group:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Add member to group
+const addMember = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const userId = req.user.id;
+    const { account_id, amount, payment_deadline } = req.body;
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (group.owner_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only group owner can add members"
+      });
+    }
+
+    // Check if user exists
+    const user = await Account.getById(account_id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Check if already a member
+    const existingMember = await ExpenseGroupMember.getMember(groupId, account_id);
+    if (existingMember) {
+      return res.status(400).json({
+        success: false,
+        message: "User is already a member of this group"
+      });
+    }
+
+    await ExpenseGroupMember.addMember({
+      group_id: groupId,
+      account_id,
+      amount: amount || 0,
+      payment_deadline: payment_deadline || group.payment_deadline
+    });
+
+    // Send notification
+    const token = await FcmToken.getActiveToken(account_id);
+    if (token) {
+      const title = "Bạn được thêm vào nhóm";
+      const body = `Nhóm: ${group.group_name}`;
+      await sendNotification(token, title, body, { groupId: groupId.toString() });
+    }
+
+    res.json({ success: true, message: "Member added successfully" });
+  } catch (err) {
+    console.error("Error adding member:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Remove member from group
+const removeMember = async (req, res) => {
+  try {
+    const { groupId, memberId } = req.params;
+    const userId = req.user.id;
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (group.owner_id !== userId && parseInt(memberId) !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to remove this member"
+      });
+    }
+
+    // Cannot remove owner
+    if (parseInt(memberId) === group.owner_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot remove group owner"
+      });
+    }
+
+    await ExpenseGroupMember.removeMember(groupId, memberId);
+
+    res.json({ success: true, message: "Member removed successfully" });
+  } catch (err) {
+    console.error("Error removing member:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Update member amount
+const updateMemberAmount = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const memberId = req.params.memberId;
+    const userId = req.user.id;
+    const { amount, payment_deadline } = req.body;
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (group.owner_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only group owner can update member amounts"
+      });
+    }
+
+    if (isNaN(amount) || parseFloat(amount) < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be a non-negative number"
+      });
+    }
+
+    await ExpenseGroupMember.updateMemberDetails(groupId, memberId, {
+      amount: parseFloat(amount),
+      payment_deadline
+    });
+
+    res.json({ success: true, message: "Member amount updated successfully" });
+  } catch (err) {
+    console.error("Error updating member amount:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Update member proof image
+const updateMemberProof = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const memberId = req.params.memberId;
+    const userId = req.user.id;
+    const { proof_image_url } = req.body;
+
+    if (!proof_image_url) {
+      return res.status(400).json({
+        success: false,
+        message: "Proof image URL is required"
+      });
+    }
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    // Check if user is the member themselves
+    if (parseInt(memberId) !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only update your own proof image"
+      });
+    }
+
+    await ExpenseGroupMember.updateMemberDetails(groupId, memberId, {
+      proof_image_url
+    });
+    await ExpenseGroupMember.updateMemberStatus(groupId, memberId, {
+      payment_status: "paid"
+    });
+    res.json({ success: true, message: "Proof image updated successfully" });
+  } catch (err) {
+    console.error("Error updating member proof:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Accept group invitation
+const acceptInvitation = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const userId = req.user.id;
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    // Check if user is a pending member
+    const memberInfo = await ExpenseGroupMember.getMember(groupId, userId);
+    if (!memberInfo) {
+      return res.status(404).json({ success: false, message: "You are not invited to this group" });
+    }
+
+    if (memberInfo.join_status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: "Invitation is not pending"
+      });
+    }
+
+    await ExpenseGroupMember.updateMemberStatus(groupId, userId, { join_status: 'accepted' });
+
+    // Send notification to group owner
+    const token = await FcmToken.getActiveToken(group.owner_id);
+    if (token) {
+      const user = await Account.getById(userId);
+      const title = "Thành viên đã chấp nhận lời mời";
+      const body = `${user.username} đã tham gia nhóm: ${group.group_name}`;
+      await sendNotification(token, title, body, { groupId: groupId.toString() });
+    }
+
+    res.json({ success: true, message: "Invitation accepted successfully" });
+  } catch (err) {
+    console.error("Error accepting invitation:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Reject group invitation
+const rejectInvitation = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const userId = req.user.id;
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    // Check if user is a pending member
+    const memberInfo = await ExpenseGroupMember.getMember(groupId, userId);
+    if (!memberInfo) {
+      return res.status(404).json({ success: false, message: "You are not invited to this group" });
+    }
+
+    if (memberInfo.join_status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: "Invitation is not pending"
+      });
+    }
+
+    await ExpenseGroupMember.updateMemberStatus(groupId, userId, { join_status: 'rejected' });
+
+    // Send notification to group owner
+    const token = await FcmToken.getActiveToken(group.owner_id);
+    if (token) {
+      const user = await Account.getById(userId);
+      const title = "Thành viên đã từ chối lời mời";
+      const body = `${user.username} đã từ chối tham gia nhóm: ${group.group_name}`;
+      await sendNotification(token, title, body, { groupId: groupId.toString() });
+    }
+
+    res.json({ success: true, message: "Invitation rejected successfully" });
+  } catch (err) {
+    console.error("Error rejecting invitation:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Leave group
+const leaveGroup = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const userId = req.user.id;
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    if (group.owner_id === userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Group owner cannot leave the group"
+      });
+    }
+
+    await ExpenseGroupMember.removeMember(groupId, userId);
+
+    // Send notification to group owner
+    const token = await FcmToken.getActiveToken(group.owner_id);
+    if (token) {
+      const user = await Account.getById(userId);
+      const title = "Thành viên đã rời nhóm";
+      const body = `${user.username} đã rời khỏi nhóm: ${group.group_name}`;
+      await sendNotification(token, title, body, { groupId: groupId.toString() });
+    }
+
+    res.json({ success: true, message: "Left group successfully" });
+  } catch (err) {
+    console.error("Error leaving group:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+module.exports = {
+  createGroup,
+  getUserGroups,
+  getGroupDetails,
+  updateGroup,
+  addMember,
+  acceptInvitation,
+  rejectInvitation,
+  removeMember,
+  updateMemberAmount,
+  updateMemberProof,
+  leaveGroup
+};
