@@ -3,13 +3,13 @@ const MonthlyBudget = require("../models/monthly_budget.model");
 // Set or update budget
 const setBudget = async (req, res) => {
   try {
-    const { month, year, limit_amount } = req.body;
+    const { category_id, month, year, limit_amount } = req.body;
     const userId = req.user.id;
 
-    if (!month || !year || !limit_amount) {
+    if (!category_id || !month || !year || !limit_amount) {
       return res.status(400).json({
         success: false,
-        message: "month, year, and limit_amount are required"
+        message: "category_id, month, year, and limit_amount are required"
       });
     }
 
@@ -36,6 +36,7 @@ const setBudget = async (req, res) => {
 
     await MonthlyBudget.setBudget({
       account_id: userId,
+      category_id: parseInt(category_id),
       month: parseInt(month),
       year: parseInt(year),
       limit_amount: parseFloat(limit_amount)
@@ -67,17 +68,17 @@ const getBudgets = async (req, res) => {
 // Get specific budget
 const getBudget = async (req, res) => {
   try {
-    const { month, year } = req.params;
+    const { categoryId, month, year } = req.params;
     const userId = req.user.id;
 
-    if (!month || !year) {
+    if (!categoryId || !month || !year) {
       return res.status(400).json({
         success: false,
-        message: "Month and year are required"
+        message: "Category, month and year are required"
       });
     }
 
-    const budget = await MonthlyBudget.getBudget(userId, parseInt(month), parseInt(year));
+    const budget = await MonthlyBudget.getBudget(userId, parseInt(categoryId), parseInt(month), parseInt(year));
 
     res.json({ success: true, budget });
   } catch (err) {
@@ -89,7 +90,7 @@ const getBudget = async (req, res) => {
 // Update budget
 const updateBudget = async (req, res) => {
   try {
-    const { month, year } = req.params;
+    const { categoryId, month, year } = req.params;
     const { limit_amount } = req.body;
     const userId = req.user.id;
 
@@ -107,7 +108,13 @@ const updateBudget = async (req, res) => {
       });
     }
 
-    await MonthlyBudget.updateBudget(userId, parseInt(month), parseInt(year), parseFloat(limit_amount));
+    await MonthlyBudget.updateBudget(
+      userId,
+      parseInt(categoryId),
+      parseInt(month),
+      parseInt(year),
+      parseFloat(limit_amount)
+    );
 
     res.json({ success: true, message: "Budget updated successfully" });
   } catch (err) {
@@ -119,10 +126,10 @@ const updateBudget = async (req, res) => {
 // Delete budget
 const deleteBudget = async (req, res) => {
   try {
-    const { month, year } = req.params;
+    const { categoryId, month, year } = req.params;
     const userId = req.user.id;
 
-    await MonthlyBudget.deleteBudget(userId, parseInt(month), parseInt(year));
+    await MonthlyBudget.deleteBudget(userId, parseInt(categoryId), parseInt(month), parseInt(year));
 
     res.json({ success: true, message: "Budget deleted successfully" });
   } catch (err) {
@@ -147,17 +154,22 @@ const getCurrentBudgetSummary = async (req, res) => {
 // Get budget vs spending for specific month
 const getBudgetVsSpending = async (req, res) => {
   try {
-    const { month, year } = req.params;
+    const { categoryId, month, year } = req.params;
     const userId = req.user.id;
 
-    if (!month || !year) {
+    if (!categoryId || !month || !year) {
       return res.status(400).json({
         success: false,
-        message: "Month and year are required"
+        message: "Category, month and year are required"
       });
     }
 
-    const summary = await MonthlyBudget.getBudgetVsSpending(userId, parseInt(month), parseInt(year));
+    const summary = await MonthlyBudget.getBudgetVsSpending(
+      userId,
+      parseInt(categoryId),
+      parseInt(month),
+      parseInt(year)
+    );
 
     res.json({ success: true, summary });
   } catch (err) {

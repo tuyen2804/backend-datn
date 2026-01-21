@@ -159,6 +159,34 @@ const getUserExpenses = async (req, res) => {
   }
 };
 
+// Monthly group-expense report for current user (across all groups)
+// Query params: year, month (optional: default = current month/year)
+const getUserMonthlyGroupExpenseSummary = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    let { year, month } = req.query;
+
+    const now = new Date();
+    year = year ? parseInt(year, 10) : now.getFullYear();
+    month = month ? parseInt(month, 10) : now.getMonth() + 1;
+
+    if (month < 1 || month > 12) {
+      return res.status(400).json({ success: false, message: "Month must be between 1 and 12" });
+    }
+
+    if (year < 2020 || year > 2035) {
+      return res.status(400).json({ success: false, message: "Year must be between 2020 and 2035" });
+    }
+
+    const summary = await GroupExpense.getUserMonthlySummary(userId, year, month);
+
+    return res.json({ success: true, summary });
+  } catch (err) {
+    console.error("Error getting user monthly group expense summary:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 // Update expense
 const updateExpense = async (req, res) => {
   try {
@@ -286,6 +314,7 @@ module.exports = {
   createExpense,
   getGroupExpenses,
   getUserExpenses,
+  getUserMonthlyGroupExpenseSummary,
   updateExpense,
   deleteExpense,
   updateExpenseShares

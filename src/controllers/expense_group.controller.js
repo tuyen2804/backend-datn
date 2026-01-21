@@ -4,6 +4,47 @@ const Account = require("../models/account.model");
 const FcmToken = require("../models/fcm_token.model");
 const { sendNotification } = require("../utils/fcm");
 
+// Báo cáo chỉ tiêu nhóm theo tháng (theo userId)
+// GET /api/groups/report/targets/:userId?month=MM&year=YYYY
+const getUserMonthlyGroupTargetReport = async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId, 10);
+    let { month, year } = req.query;
+
+    const now = new Date();
+    year = year ? parseInt(year, 10) : now.getFullYear();
+    month = month ? parseInt(month, 10) : now.getMonth() + 1;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "userId is required" });
+    }
+    if (month < 1 || month > 12) {
+      return res.status(400).json({ success: false, message: "Month must be between 1 and 12" });
+    }
+    if (year < 2020 || year > 2035) {
+      return res.status(400).json({ success: false, message: "Year must be between 2020 and 2035" });
+    }
+
+    // Chỉ cho phép xem report của chính mình (tránh lộ dữ liệu)
+    if (req.user.id !== userId) {
+      return res.status(403).json({ success: false, message: "You can only view your own report" });
+    }
+
+    const result = await ExpenseGroup.getUserMonthlyTargetReport(userId, year, month);
+
+    return res.json({
+      success: true,
+      month,
+      year,
+      totals: result.totals,
+      groups: result.rows
+    });
+  } catch (err) {
+    console.error("Error getting user monthly group target report:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 // Create expense group
 const createGroup = async (req, res) => {
   try {
@@ -448,6 +489,7 @@ const leaveGroup = async (req, res) => {
 };
 
 module.exports = {
+  getUserMonthlyGroupTargetReport,
   createGroup,
   getUserGroups,
   getGroupDetails,

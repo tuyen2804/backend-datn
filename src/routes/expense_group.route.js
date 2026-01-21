@@ -5,9 +5,17 @@ const { verifyToken } = require("../middlewares/auth.middleware");
 
 // Tạo nhóm chi tiêu
 router.post("/", verifyToken, expenseGroupController.createGroup);
+// Chấp nhận lời mời tham gia nhóm
+router.patch("/:groupId/accept-invitation", verifyToken, expenseGroupController.acceptInvitation);
+
+// Từ chối lời mời
+router.patch("/:groupId/reject-invitation", verifyToken, expenseGroupController.rejectInvitation);
 
 // Lấy danh sách nhóm của user
 router.get("/", verifyToken, expenseGroupController.getUserGroups);
+
+// Báo cáo chỉ tiêu nhóm theo tháng (theo userId) - đặt trước "/:groupId" để tránh conflict
+router.get("/report/targets/:userId", verifyToken, expenseGroupController.getUserMonthlyGroupTargetReport);
 
 // Lấy chi tiết nhóm
 router.get("/:groupId", verifyToken, expenseGroupController.getGroupDetails);

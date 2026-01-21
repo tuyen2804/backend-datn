@@ -118,6 +118,48 @@ const GroupExpense = {
       [groupId, year, month]
     );
     return rows[0] || null;
+  },
+
+  // Get monthly group-expense summary for a user across all groups
+  // - total user paid as payer
+  // - total user is shared/owed as participant
+  // - net = paid - shared
+  getUserMonthlySummary: async (userId, year, month) => {
+    const [paidRows] = await db.query(
+      `SELECT
+        COALESCE(SUM(ge.total_amount), 0) AS total_paid,
+        COUNT(ge.id) AS paid_expense_count
+      FROM group_expense ge
+      WHERE ge.payer_id = ?
+        AND YEAR(ge.expense_date) = ?
+        AND MONTH(ge.expense_date) = ?`,
+      [userId, year, month]
+    );
+
+    const [owedRows] = await db.query(
+      `SELECT
+        COALESCE(SUM(ges.shared_amount), 0) AS total_owed,
+        COUNT(DISTINCT ges.group_expense_id) AS owed_expense_count
+      FROM group_expense_share ges
+      JOIN group_expense ge ON ges.group_expense_id = ge.id
+      WHERE ges.account_id = ?
+        AND YEAR(ge.expense_date) = ?
+        AND MONTH(ge.expense_date) = ?`,
+      [userId, year, month]
+    );
+
+    const paid = paidRows[0] || { total_paid: 0, paid_expense_count: 0 };
+    const owed = owedRows[0] || { total_owed: 0, owed_expense_count: 0 };
+
+    return {
+      year,
+      month,
+      total_paid: paid.total_paid || 0,
+      paid_expense_count: paid.paid_expense_count || 0,
+      total_owed: owed.total_owed || 0,
+      owed_expense_count: owed.owed_expense_count || 0,
+      net: (paid.total_paid || 0) - (owed.total_owed || 0)
+    };
   }
 };
 

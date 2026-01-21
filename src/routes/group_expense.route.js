@@ -12,6 +12,10 @@ router.get("/group/:groupId", verifyToken, groupExpenseController.getGroupExpens
 // Lấy chi phí của user (tất cả nhóm)
 router.get("/user", verifyToken, groupExpenseController.getUserExpenses);
 
+// Báo cáo chi tiêu nhóm theo tháng của user (tổng các nhóm)
+// Query: ?year=YYYY&month=MM (optional, default = tháng hiện tại)
+router.get("/report/user-monthly", verifyToken, groupExpenseController.getUserMonthlyGroupExpenseSummary);
+
 // Cập nhật chi phí
 router.put("/:expenseId", verifyToken, groupExpenseController.updateExpense);
 

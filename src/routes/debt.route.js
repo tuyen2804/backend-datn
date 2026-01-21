@@ -6,6 +6,12 @@ const { verifyToken } = require("../middlewares/auth.middleware");
 // Tạo khoản nợ
 router.post("/", verifyToken, debtController.createDebt);
 
+// Báo cáo thống kê vay/nợ (user hiện tại)
+router.get("/report/summary", verifyToken, debtController.getDebtSummaryReport);
+router.get("/report/counterparties", verifyToken, debtController.getDebtByCounterpartyReport);
+router.get("/report/monthly", verifyToken, debtController.getDebtMonthlyReport);
+router.get("/report/yearly", verifyToken, debtController.getDebtYearlyReport);
+
 // Lấy danh sách khoản nợ theo user
 router.get("/:userId", verifyToken, debtController.getDebts);
 
