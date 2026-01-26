@@ -132,6 +132,160 @@ const ExpenseGroup = {
     );
 
     return { rows, totals };
+  },
+
+  // Lấy các nhóm mà user là owner có thành viên chưa hoàn thành trả nợ
+  // - Các nhóm có thành viên chưa trả (payment_status = 'unpaid')
+  // - Các nhóm có thành viên quá hạn (payment_status = 'unpaid' AND payment_deadline < NOW())
+  getOwnerGroupsWithUnpaidMembers: async (ownerId) => {
+    // Nhóm có thành viên chưa trả
+    const [unpaidGroups] = await db.query(
+      `SELECT DISTINCT
+        eg.id AS group_id,
+        eg.group_name,
+        eg.owner_id,
+        eg.payment_deadline AS group_payment_deadline,
+        eg.created_at,
+        COUNT(DISTINCT egm.account_id) AS unpaid_member_count,
+        SUM(egm.amount) AS total_unpaid_amount,
+        GROUP_CONCAT(DISTINCT a.email SEPARATOR ', ') AS unpaid_emails
+      FROM expense_group eg
+      JOIN expense_group_member egm ON eg.id = egm.group_id
+      JOIN account a ON egm.account_id = a.id
+      WHERE eg.owner_id = ?
+        AND egm.payment_status = 'unpaid'
+        AND egm.join_status = 'accepted'
+      GROUP BY eg.id, eg.group_name, eg.owner_id, eg.payment_deadline, eg.created_at
+      ORDER BY eg.created_at DESC`,
+      [ownerId]
+    );
+
+    // Nhóm có thành viên quá hạn
+    const [overdueGroups] = await db.query(
+      `SELECT DISTINCT
+        eg.id AS group_id,
+        eg.group_name,
+        eg.owner_id,
+        eg.payment_deadline AS group_payment_deadline,
+        eg.created_at,
+        COUNT(DISTINCT egm.account_id) AS overdue_member_count,
+        SUM(egm.amount) AS total_overdue_amount,
+        GROUP_CONCAT(DISTINCT a.email SEPARATOR ', ') AS overdue_emails
+      FROM expense_group eg
+      JOIN expense_group_member egm ON eg.id = egm.group_id
+      JOIN account a ON egm.account_id = a.id
+      WHERE eg.owner_id = ?
+        AND egm.payment_status = 'unpaid'
+        AND egm.join_status = 'accepted'
+        AND (egm.payment_deadline IS NOT NULL AND egm.payment_deadline < NOW())
+      GROUP BY eg.id, eg.group_name, eg.owner_id, eg.payment_deadline, eg.created_at
+      ORDER BY eg.created_at DESC`,
+      [ownerId]
+    );
+
+    // Tính tổng
+    const totalUnpaid = unpaidGroups.reduce((sum, g) => sum + parseFloat(g.total_unpaid_amount || 0), 0);
+    const totalOverdue = overdueGroups.reduce((sum, g) => sum + parseFloat(g.total_overdue_amount || 0), 0);
+
+    // Lấy tất cả email chưa trả (unique)
+    const allUnpaidEmails = [...new Set(
+      unpaidGroups
+        .map(g => g.unpaid_emails ? g.unpaid_emails.split(', ') : [])
+        .flat()
+    )];
+
+    return {
+      unpaid_groups: unpaidGroups,
+      overdue_groups: overdueGroups,
+      total_unpaid_amount: totalUnpaid,
+      total_overdue_amount: totalOverdue,
+      unpaid_emails: allUnpaidEmails
+    };
+  },
+
+  // Lấy trạng thái thanh toán của các nhóm mà user là thành viên
+  // - Các nhóm chưa trả (payment_status = 'unpaid')
+  // - Các nhóm đã trả (payment_status = 'paid' AND owner_confirm_status = 'confirmed')
+  // - Các nhóm quá hạn (payment_status = 'unpaid' AND payment_deadline < NOW())
+  getMemberPaymentStatus: async (memberId) => {
+    // Nhóm chưa trả
+    const [unpaidGroups] = await db.query(
+      `SELECT
+        eg.id AS group_id,
+        eg.group_name,
+        eg.owner_id,
+        a.username AS owner_username,
+        a.email AS owner_email,
+        egm.amount,
+        egm.payment_status,
+        egm.payment_deadline,
+        eg.created_at
+      FROM expense_group_member egm
+      JOIN expense_group eg ON egm.group_id = eg.id
+      JOIN account a ON eg.owner_id = a.id
+      WHERE egm.account_id = ?
+        AND egm.payment_status = 'unpaid'
+        AND egm.join_status = 'accepted'
+      ORDER BY eg.created_at DESC`,
+      [memberId]
+    );
+
+    // Nhóm đã trả (đã được owner xác nhận)
+    const [paidGroups] = await db.query(
+      `SELECT
+        eg.id AS group_id,
+        eg.group_name,
+        eg.owner_id,
+        a.username AS owner_username,
+        a.email AS owner_email,
+        egm.amount,
+        egm.payment_status,
+        egm.owner_confirm_status,
+        egm.payment_deadline,
+        eg.created_at
+      FROM expense_group_member egm
+      JOIN expense_group eg ON egm.group_id = eg.id
+      JOIN account a ON eg.owner_id = a.id
+      WHERE egm.account_id = ?
+        AND egm.payment_status = 'paid'
+        AND egm.owner_confirm_status = 'confirmed'
+        AND egm.join_status = 'accepted'
+      ORDER BY eg.created_at DESC`,
+      [memberId]
+    );
+
+    // Nhóm quá hạn
+    const [overdueGroups] = await db.query(
+      `SELECT
+        eg.id AS group_id,
+        eg.group_name,
+        eg.owner_id,
+        a.username AS owner_username,
+        a.email AS owner_email,
+        egm.amount,
+        egm.payment_status,
+        egm.payment_deadline,
+        eg.created_at
+      FROM expense_group_member egm
+      JOIN expense_group eg ON egm.group_id = eg.id
+      JOIN account a ON eg.owner_id = a.id
+      WHERE egm.account_id = ?
+        AND egm.payment_status = 'unpaid'
+        AND egm.join_status = 'accepted'
+        AND (egm.payment_deadline IS NOT NULL AND egm.payment_deadline < NOW())
+      ORDER BY eg.created_at DESC`,
+      [memberId]
+    );
+
+    // Tính tổng số tiền chưa trả
+    const totalUnpaid = unpaidGroups.reduce((sum, g) => sum + parseFloat(g.amount || 0), 0);
+
+    return {
+      unpaid_groups: unpaidGroups,
+      paid_groups: paidGroups,
+      overdue_groups: overdueGroups,
+      total_unpaid_amount: totalUnpaid
+    };
   }
 };
 

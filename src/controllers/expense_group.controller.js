@@ -567,6 +567,42 @@ const confirmMemberPayment = async (req, res) => {
   }
 };
 
+// API cho trưởng nhóm: Hiển thị các nhóm có thành viên chưa hoàn thành trả nợ
+// - Các nhóm có thành viên chưa trả
+// - Các nhóm có thành viên quá hạn
+// - Tổng số tiền chưa trả
+// - Liệt kê các email chưa trả
+const getOwnerGroupsWithUnpaidMembers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const result = await ExpenseGroup.getOwnerGroupsWithUnpaidMembers(userId);
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    console.error("Error getting owner groups with unpaid members:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// API cho thành viên: Trả về các nhóm chưa trả, đã trả, quá hạn và tổng số tiền chưa trả
+const getMemberPaymentStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const result = await ExpenseGroup.getMemberPaymentStatus(userId);
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    console.error("Error getting member payment status:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 module.exports = {
   getUserMonthlyGroupTargetReport,
   createGroup,
@@ -580,5 +616,7 @@ module.exports = {
   updateMemberAmount,
   updateMemberProof,
   confirmMemberPayment,
+  getOwnerGroupsWithUnpaidMembers,
+  getMemberPaymentStatus,
   leaveGroup
 };

@@ -106,6 +106,72 @@ const getDebtYearlyReport = async (req, res) => {
   }
 };
 
+// Báo cáo đầy đủ cho người cho vay (creditor)
+// - Liệt kê các email nợ chưa trả
+// - Các email nợ quá hạn
+// - Số tiền đã được trả
+// - Tổng số tiền chưa được trả
+const getCreditorFullReport = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [rows] = await Debt.getCreditorFullReport({ userId });
+    const result = rows[0] || {};
+
+    // Parse emails từ string sang array (loại bỏ null/empty)
+    const unpaidEmails = result.unpaid_emails 
+      ? result.unpaid_emails.split(', ').filter(e => e && e.trim())
+      : [];
+    const overdueEmails = result.overdue_emails
+      ? result.overdue_emails.split(', ').filter(e => e && e.trim())
+      : [];
+
+    res.json({
+      success: true,
+      data: {
+        total_paid_amount: parseFloat(result.total_paid_amount || 0),
+        total_unpaid_amount: parseFloat(result.total_unpaid_amount || 0),
+        unpaid_emails: [...new Set(unpaidEmails)], // Remove duplicates
+        overdue_emails: [...new Set(overdueEmails)] // Remove duplicates
+      }
+    });
+  } catch (err) {
+    console.error("Error getting creditor full report:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Báo cáo đầy đủ cho người vay (debtor)
+// - Liệt kê các email chưa trả (người cho vay)
+// - Các email quá hạn
+// - Tổng số tiền chưa trả
+const getDebtorFullReport = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [rows] = await Debt.getDebtorFullReport({ userId });
+    const result = rows[0] || {};
+
+    // Parse emails từ string sang array (loại bỏ null/empty)
+    const unpaidEmails = result.unpaid_emails
+      ? result.unpaid_emails.split(', ').filter(e => e && e.trim())
+      : [];
+    const overdueEmails = result.overdue_emails
+      ? result.overdue_emails.split(', ').filter(e => e && e.trim())
+      : [];
+
+    res.json({
+      success: true,
+      data: {
+        total_unpaid_amount: parseFloat(result.total_unpaid_amount || 0),
+        unpaid_emails: [...new Set(unpaidEmails)], // Remove duplicates
+        overdue_emails: [...new Set(overdueEmails)] // Remove duplicates
+      }
+    });
+  } catch (err) {
+    console.error("Error getting debtor full report:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 const createDebt = async (req, res) => {
   try {
     const { creditor_id, debtor_id, amount, note, due_date } = req.body;
@@ -449,6 +515,8 @@ module.exports = {
   getDebtByCounterpartyReport,
   getDebtMonthlyReport,
   getDebtYearlyReport,
+  getCreditorFullReport,
+  getDebtorFullReport,
   reportPayment,
   confirmDebt,
   confirmPayment,

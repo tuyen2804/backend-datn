@@ -252,6 +252,60 @@ const Debt = {
        ORDER BY year DESC`,
       [userId, userId, userId, userId]
     );
+  },
+
+  // Báo cáo đầy đủ cho người cho vay (creditor)
+  // - Liệt kê các email nợ chưa trả
+  // - Các email nợ quá hạn
+  // - Số tiền đã được trả
+  // - Tổng số tiền chưa được trả
+  getCreditorFullReport: ({ userId }) => {
+    return db.query(
+      `SELECT
+        -- Tổng hợp
+        COALESCE(SUM(CASE WHEN d.paid_status = 'paid' AND d.payment_confirm_status = 'confirmed' THEN d.amount ELSE 0 END), 0) AS total_paid_amount,
+        COALESCE(SUM(CASE WHEN d.paid_status = 'unpaid' THEN d.amount ELSE 0 END), 0) AS total_unpaid_amount,
+        -- Email chưa trả (unique)
+        GROUP_CONCAT(DISTINCT CASE WHEN d.paid_status = 'unpaid' THEN a.email END SEPARATOR ', ') AS unpaid_emails,
+        -- Email quá hạn (unique)
+        GROUP_CONCAT(DISTINCT CASE 
+          WHEN d.paid_status = 'unpaid' 
+            AND d.due_date IS NOT NULL 
+            AND d.due_date < NOW() 
+          THEN a.email 
+        END SEPARATOR ', ') AS overdue_emails
+      FROM debt d
+      JOIN account a ON d.debtor_id = a.id
+      WHERE d.creditor_id = ?
+        AND d.debt_confirm_status = 'accepted'`,
+      [userId]
+    );
+  },
+
+  // Báo cáo đầy đủ cho người vay (debtor)
+  // - Liệt kê các email chưa trả (người cho vay)
+  // - Các email quá hạn
+  // - Tổng số tiền chưa trả
+  getDebtorFullReport: ({ userId }) => {
+    return db.query(
+      `SELECT
+        -- Tổng số tiền chưa trả
+        COALESCE(SUM(CASE WHEN d.paid_status = 'unpaid' THEN d.amount ELSE 0 END), 0) AS total_unpaid_amount,
+        -- Email chưa trả (unique) - người cho vay
+        GROUP_CONCAT(DISTINCT CASE WHEN d.paid_status = 'unpaid' THEN a.email END SEPARATOR ', ') AS unpaid_emails,
+        -- Email quá hạn (unique) - người cho vay
+        GROUP_CONCAT(DISTINCT CASE 
+          WHEN d.paid_status = 'unpaid' 
+            AND d.due_date IS NOT NULL 
+            AND d.due_date < NOW() 
+          THEN a.email 
+        END SEPARATOR ', ') AS overdue_emails
+      FROM debt d
+      JOIN account a ON d.creditor_id = a.id
+      WHERE d.debtor_id = ?
+        AND d.debt_confirm_status = 'accepted'`,
+      [userId]
+    );
   }
 };
 

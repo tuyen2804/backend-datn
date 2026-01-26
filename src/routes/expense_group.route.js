@@ -17,6 +17,12 @@ router.get("/", verifyToken, expenseGroupController.getUserGroups);
 // Báo cáo chỉ tiêu nhóm theo tháng (theo userId) - đặt trước "/:groupId" để tránh conflict
 router.get("/report/targets/:userId", verifyToken, expenseGroupController.getUserMonthlyGroupTargetReport);
 
+// API cho trưởng nhóm: Xem các nhóm có thành viên chưa trả/quá hạn
+router.get("/owner/unpaid-members", verifyToken, expenseGroupController.getOwnerGroupsWithUnpaidMembers);
+
+// API cho thành viên: Xem trạng thái thanh toán các nhóm (chưa trả/đã trả/quá hạn)
+router.get("/member/payment-status", verifyToken, expenseGroupController.getMemberPaymentStatus);
+
 // Lấy chi tiết nhóm
 router.get("/:groupId", verifyToken, expenseGroupController.getGroupDetails);
 

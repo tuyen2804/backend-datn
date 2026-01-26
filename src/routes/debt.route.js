@@ -12,6 +12,12 @@ router.get("/report/counterparties", verifyToken, debtController.getDebtByCounte
 router.get("/report/monthly", verifyToken, debtController.getDebtMonthlyReport);
 router.get("/report/yearly", verifyToken, debtController.getDebtYearlyReport);
 
+// Báo cáo đầy đủ cho người cho vay (creditor)
+router.get("/report/creditor/full", verifyToken, debtController.getCreditorFullReport);
+
+// Báo cáo đầy đủ cho người vay (debtor)
+router.get("/report/debtor/full", verifyToken, debtController.getDebtorFullReport);
+
 // Lấy danh sách khoản nợ theo user
 router.get("/:userId", verifyToken, debtController.getDebts);
 
