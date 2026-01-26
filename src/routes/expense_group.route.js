@@ -35,6 +35,10 @@ router.put("/:groupId/members/:memberId/amount", verifyToken, expenseGroupContro
 // Cập nhật ảnh chứng minh thanh toán của thành viên
 router.put("/:groupId/members/:memberId/proof", verifyToken, expenseGroupController.updateMemberProof);
 
+// Trưởng nhóm xác nhận trạng thái thanh toán của thành viên (thành công/thất bại)
+// Body: { status: 'confirmed' | 'rejected' }
+router.patch("/:groupId/members/:memberId/confirm-payment", verifyToken, expenseGroupController.confirmMemberPayment);
+
 // Rời khỏi nhóm
 router.post("/:groupId/leave", verifyToken, expenseGroupController.leaveGroup);
 

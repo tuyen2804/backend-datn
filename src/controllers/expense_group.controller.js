@@ -488,6 +488,85 @@ const leaveGroup = async (req, res) => {
   }
 };
 
+// Trưởng nhóm xác nhận trạng thái thanh toán của thành viên (thành công hoặc thất bại)
+// Body: { status: 'confirmed' | 'rejected' }
+const confirmMemberPayment = async (req, res) => {
+  try {
+    const groupId = req.params.groupId;
+    const memberId = req.params.memberId;
+    const userId = req.user.id;
+    const { status } = req.body;
+
+    if (!status || (status !== 'confirmed' && status !== 'rejected')) {
+      return res.status(400).json({
+        success: false,
+        message: "status must be 'confirmed' or 'rejected'"
+      });
+    }
+
+    const group = await ExpenseGroup.getById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: "Group not found" });
+    }
+
+    // Chỉ trưởng nhóm mới được xác nhận
+    if (group.owner_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only group owner can confirm member payment"
+      });
+    }
+
+    // Kiểm tra thành viên có tồn tại không
+    const memberInfo = await ExpenseGroupMember.getMember(groupId, memberId);
+    if (!memberInfo) {
+      return res.status(404).json({
+        success: false,
+        message: "Member not found in this group"
+      });
+    }
+
+    // Chỉ xác nhận khi thành viên đã báo thanh toán (payment_status = 'paid')
+    if (memberInfo.payment_status !== 'paid') {
+      return res.status(400).json({
+        success: false,
+        message: "Member has not reported payment yet"
+      });
+    }
+
+    // Cập nhật owner_confirm_status
+    const ownerConfirmStatus = status === 'confirmed' ? 'confirmed' : 'rejected';
+    await ExpenseGroupMember.updateMemberStatus(groupId, memberId, {
+      owner_confirm_status: ownerConfirmStatus
+    });
+
+    // Gửi thông báo cho thành viên
+    const token = await FcmToken.getActiveToken(memberId);
+    if (token) {
+      const title = status === 'confirmed' 
+        ? "Thanh toán đã được xác nhận" 
+        : "Thanh toán bị từ chối";
+      const body = status === 'confirmed'
+        ? `Nhóm ${group.group_name}: Thanh toán của bạn đã được xác nhận thành công`
+        : `Nhóm ${group.group_name}: Thanh toán của bạn bị từ chối, vui lòng kiểm tra lại`;
+      await sendNotification(token, title, body, { 
+        groupId: groupId.toString(),
+        memberId: memberId.toString()
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      message: status === 'confirmed' 
+        ? "Payment confirmed successfully" 
+        : "Payment rejected successfully"
+    });
+  } catch (err) {
+    console.error("Error confirming member payment:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 module.exports = {
   getUserMonthlyGroupTargetReport,
   createGroup,
@@ -500,5 +579,6 @@ module.exports = {
   removeMember,
   updateMemberAmount,
   updateMemberProof,
+  confirmMemberPayment,
   leaveGroup
 };
